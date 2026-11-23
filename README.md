@@ -40,6 +40,8 @@ go test ./...
 ./llm-router -config config.yaml
 ```
 
+`-version` prints the build version and exits.
+
 Point any OpenAI client at `http://<host>:4000/v1`:
 
 ```python
@@ -147,7 +149,7 @@ If koboldcpp runs with `--password` (or `--adminpassword`), set `admin_key` to t
 
 - `/api/admin/list_options` answers **200 with an empty body** (not 401), so the router falls back to `/v1/models` for discovery
 - `/api/v1/model` answers the sentinel `koboldcpp/protected-model`; the router treats that as "a model is loaded" (so it forwards, not reloads) and logs a warning once — fix `admin_key` to get the real model name tracked and listed
-- `reload_config` answers `{"success": false}`, which the router logs
+- `reload_config` answers `{"success": false}`; the router's unload then polls `/api/v1/model` for up to 60s waiting for the model to actually unload, times out (it can't, without the admin key), and reports the failure
 
 ## GPU arbitration
 
