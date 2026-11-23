@@ -68,6 +68,10 @@ Linux `amd64` binary is the deployable. Production topology: client → Caddy (T
 
 ## Conventions
 
+- **Comments are purposeful.** A comment explains what the code cannot show on its
+  own — the why, the gotcha, the non-obvious constraint. It does not narrate the
+  change ("fixed the 401 bug", "changed X to Y"); that belongs in the commit
+  message. If a comment only restates what the code already says, leave it out.
 - **New `.go` files need the MPL-2.0 header** — copy the top of any existing file.
   The project is licensed MPL-2.0 (see `LICENSE`).
 - **`test-live.yaml` is gitignored and points at a live server** (uses
