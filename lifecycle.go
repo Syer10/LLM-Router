@@ -81,8 +81,11 @@ func (r *Router) idleLoop(ctx context.Context) {
 				}
 				idle := now.Sub(b.LastActivity())
 
-				if bc.IdleUnload > 0 && idle >= bc.IdleUnload && b.GPUActive() {
-					log.Printf("[%s] idle for %s, freeing GPU", name, idle.Round(time.Second))
+				// idle_unload is koboldcpp-only: it unloads the model (frees VRAM,
+				// keeps the process). For other backends the process is the model,
+				// so idle_stop (below) is what frees the GPU.
+				if bc.Type == "koboldcpp" && bc.IdleUnload > 0 && idle >= bc.IdleUnload && b.GPUActive() {
+					log.Printf("[%s] idle for %s, unloading model", name, idle.Round(time.Second))
 					go b.FreeGPU(context.Background())
 				}
 				if bc.Command != "" && bc.IdleStop > 0 && idle >= bc.IdleStop && b.PID() != 0 {

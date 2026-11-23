@@ -51,10 +51,11 @@ type BackendConfig struct {
 	AutoStart    *bool    `yaml:"auto_start"`
 	StartTimeout time.Duration `yaml:"start_timeout"`
 
-	// IdleUnload frees the backend's GPU after this much idle time (unloads
-	// the model for koboldcpp, stops the process for owned backends).
+	// IdleUnload (koboldcpp only): unload the loaded model after this much idle
+	// time, freeing VRAM while the process stays up.
 	IdleUnload time.Duration `yaml:"idle_unload"`
-	// owned processes: kill the process after this much idle time
+	// IdleStop (owned): kill the process after this much idle time. For a
+	// command backend this is what frees the GPU.
 	IdleStop time.Duration `yaml:"idle_stop"`
 
 	// Extra models not listed by the backend (e.g. raw .gguf files that
@@ -120,6 +121,9 @@ func LoadConfig(path string) (*Config, error) {
 		seen[b.Name] = true
 		if b.Type != "koboldcpp" && b.Type != "openai" {
 			return nil, fmt.Errorf("backend %q: type must be \"koboldcpp\" or \"openai\"", b.Name)
+		}
+		if b.IdleUnload > 0 && b.Type != "koboldcpp" {
+			return nil, fmt.Errorf("backend %q: idle_unload is only supported for koboldcpp (use idle_stop to free the GPU)", b.Name)
 		}
 		if b.BaseURL == "" {
 			return nil, fmt.Errorf("backend %q: base_url is required", b.Name)

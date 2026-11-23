@@ -54,16 +54,15 @@ backends:
     api_key: ${OPENAI_API_KEY}
 
   # --- any OpenAI-compatible server, owned (router manages the process)
-  # A `command` backend is a local GPU backend by default: the router frees it
-  # (stops the process) before another GPU backend or a job uses the GPU.
-  # idle_unload frees the GPU after idle; idle_stop kills the process.
+  # A `command` backend is a local GPU backend by default: the router stops it
+  # before another GPU backend or a job uses the GPU. idle_stop is what frees
+  # its GPU after idle (the process is the model, so stopping frees the VRAM).
   # - name: vllm
   #   type: openai
   #   base_url: http://127.0.0.1:8000/v1
   #   command: "vllm serve /models/llama-70b --port 8000"
   #   start_timeout: 20m
-  #   idle_unload: 30m
-  #   idle_stop: 2h
+  #   idle_stop: 30m
 
 # Short names for clients: alias -> backend/model
 aliases:

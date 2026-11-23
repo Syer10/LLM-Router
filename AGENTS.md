@@ -44,8 +44,10 @@ one consumer is active at a time:
 - **Before a model loads**, the proxy releases every other active GPU backend
   (`Router.freeOtherGPU`) and any running job, so the model loads into a free
   GPU. `FreeGPU` is per-type: koboldcpp unloads, owned openai stops the process.
-- **Idle timeouts apply to every GPU backend** (`lifecycle.go`): `idle_unload`
-  calls `FreeGPU` (frees the GPU), `idle_stop` calls `StopProcess` (owned only).
+- **Idle timeouts** (`lifecycle.go`): `idle_unload` is koboldcpp-only (unloads
+  the model, keeps the process); `idle_stop` kills an owned process — for a
+  command backend that is how the GPU is freed. `idle_unload` is rejected at
+  config load for non-kobold backends.
 - **`jobs:`** run GPU-intensive commands on a cron schedule, only while
   `GPUIdle`. The scheduler (`jobs.go`) ticks every 15s; `on_busy` is `defer`
   (bounded by `max_wait`) or `skip`. Jobs are the one non-backend process the

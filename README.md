@@ -17,9 +17,10 @@ APIs, ...) and routes requests based on the `model` parameter.
   waits for health, restarts it on demand, and kills the whole process tree
   on idle timeout or shutdown. Omit `command` to attach to an existing
   instance instead.
-- **VRAM-aware idling** — every local GPU backend can *free its GPU* after idle
-  time (`idle_unload`: koboldcpp unloads its model, an owned process is stopped)
-  and owned processes can be *killed* after a longer idle time (`idle_stop`).
+- **VRAM-aware idling** — koboldcpp can *unload* its model after idle time
+  (`idle_unload`; the process stays up, VRAM freed); owned backends can be
+  *killed* after idle time (`idle_stop`), which is how a command backend frees
+  the GPU.
 - **GPU arbitration** — the local GPU is a shared resource. A backend is a GPU
   backend by locality (koboldcpp, or any `command` backend); the router keeps
   the GPU free by releasing other GPU backends before a model loads, and runs
@@ -97,8 +98,7 @@ backends:
     base_url: http://127.0.0.1:8000/v1
     command: "vllm serve /models/llama-70b --port 8000"
     start_timeout: 20m
-    idle_unload: 30m   # free the GPU (stop the process) after idle
-    idle_stop: 2h      # kill the process after a longer idle
+    idle_stop: 30m     # stop the process after idle (frees the GPU)
 
   - name: openai-cloud
     type: openai
@@ -130,8 +130,8 @@ jobs:
 | `auto_start` | owned | start on router startup (default `true`) |
 | `start_timeout` | owned | max wait for the process to answer its health check (default 10m) |
 | `health_path` | owned | path probed for readiness (defaults: kcpp `/api/admin/list_options`, openai `/v1/models`); any HTTP response counts |
-| `idle_unload` | GPU backends | free the GPU after this idle time (unload the model, or stop an owned process) |
-| `idle_stop` | owned | kill the process after this idle time |
+| `idle_unload` | koboldcpp | unload the loaded model after this idle time (frees VRAM, process stays up) |
+| `idle_stop` | owned | kill the process after this idle time (for a command backend, this frees the GPU) |
 | `extra_models` | koboldcpp | models not reported by `list_options` (e.g. raw `.gguf`); added to the list so they can be requested |
 
 ### Model resolution
@@ -210,8 +210,8 @@ time:
   into the free GPU.
 - **Before a job runs** — a scheduled job starts only when no GPU backend is
   active (`GPUIdle`).
-- **On idle** — the per-backend `idle_unload` / `idle_stop` policies free the
-  GPU automatically, which is what makes jobs eligible.
+- **On idle** — `idle_unload` (koboldcpp) and `idle_stop` (owned) free the GPU
+  automatically, which is what makes jobs eligible.
 
 How a backend is freed:
 
@@ -255,9 +255,9 @@ How a scheduled run resolves:
 
 Notes:
 
-- **A GPU backend must be freeable for a job to ever run** — `idle_unload` /
-  `idle_stop` (or a manual free) is what frees the VRAM. With neither set, the
-  backend stays active and the job never becomes eligible.
+- **A GPU backend must be freeable for a job to ever run** — `idle_unload`
+  (koboldcpp) or `idle_stop` (owned), or a manual free, is what frees the VRAM.
+  With neither set, the backend stays active and the job never becomes eligible.
 - **LLM traffic preempts a running job.** When a request is routed to a GPU
   backend, any running job is killed so the model can load. A preempted job is
   not resumed; schedule it to tolerate that.

@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -771,6 +773,25 @@ func TestUsesGPU(t *testing.T) {
 		if got := c.cfg.UsesGPU(); got != c.want {
 			t.Fatalf("%s: UsesGPU = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+func TestConfigRejectsIdleUnloadOnNonKobold(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(
+		"listen: 127.0.0.1:4000\n"+
+			"backends:\n"+
+			"  - name: vllm\n"+
+			"    type: openai\n"+
+			"    base_url: http://127.0.0.1:8000/v1\n"+
+			"    command: vllm serve\n"+
+			"    idle_unload: 30m\n",
+	), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if _, err := LoadConfig(path); err == nil {
+		t.Fatalf("LoadConfig: expected an error for idle_unload on a non-kobold backend")
 	}
 }
 

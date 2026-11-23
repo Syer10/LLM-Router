@@ -1,0 +1,11 @@
+Make idle_unload koboldcpp-only
+
+For a command backend the process is the model, so there is no cheap
+"unload model, keep process" step. idle_unload is now koboldcpp-only
+(unloads the model, keeps the process); idle_stop is what frees a command
+backend's GPU (it kills the process).
+
+- lifecycle.go: idle_unload only fires for koboldcpp backends.
+- config.go: reject idle_unload on non-kobold backends at load time, so the
+  redundant/misleading setting cannot slip through.
+- Docs + test (TestConfigRejectsIdleUnloadOnNonKobold).
