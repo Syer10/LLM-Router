@@ -40,7 +40,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	r.DiscoverAll(ctx)
+	// Initial discovery runs in the background so the server listens
+	// immediately: one slow or unreachable backend must not delay startup.
+	// The periodic loop refreshes again, and Discover is idempotent, so the
+	// two can overlap harmlessly.
+	go r.DiscoverAll(ctx)
 	r.StartLoops(ctx)
 
 	mux := http.NewServeMux()
