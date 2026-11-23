@@ -302,7 +302,6 @@ Notes:
 | `POST /admin/backends/{name}/start` | start the managed process |
 | `POST /admin/backends/{name}/stop` | kill the managed process |
 | `POST /admin/backends/{name}/unload` | unload the model (koboldcpp) |
-| `POST /admin/backends/{name}/load` | load a model now, body `{"model": "..."}` |
 | `POST /admin/backends/{name}/discover` | re-discover models now |
 | `GET /admin/jobs` | all jobs: schedule, next/last run, last exit, running |
 | `GET /admin/jobs/{name}` | one job |

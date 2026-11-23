@@ -19,7 +19,6 @@ import (
 //	POST /admin/backends/{name}/start       start the managed process
 //	POST /admin/backends/{name}/stop        kill the managed process
 //	POST /admin/backends/{name}/unload      unload the model (koboldcpp)
-//	POST /admin/backends/{name}/load        load a model, body {"model": "..."}
 //	POST /admin/backends/{name}/discover    re-discover models now
 func (r *Router) HandleAdmin(w http.ResponseWriter, req *http.Request) {
 	if !r.authOK(req) {
@@ -88,23 +87,6 @@ func (r *Router) handleAdminBackends(w http.ResponseWriter, req *http.Request, p
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"backend": name, "state": b.State().String()})
-
-	case req.Method == http.MethodPost && action == "load":
-		var in struct {
-			Model string `json:"model"`
-		}
-		json.NewDecoder(req.Body).Decode(&in)
-		if in.Model == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "model is required"})
-			return
-		}
-		if err := b.EnsureLoaded(req.Context(), in.Model); err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"backend": name, "state": b.State().String(), "loaded": b.LoadedModel(),
-		})
 
 	case req.Method == http.MethodPost && action == "discover":
 		if err := b.Discover(req.Context()); err != nil {
