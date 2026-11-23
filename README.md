@@ -223,3 +223,8 @@ WantedBy=multi-user.target
   (e.g. `kcpp-loader.ps1`) or the admin `load` endpoint.
 - The health check counts *any* HTTP response as "up"; a backend that answers
   but can't serve a specific model will surface that on the first request.
+
+## License
+
+Mozilla Public License 2.0 (MPL-2.0). See [LICENSE](LICENSE). Each source file
+carries the MPL-2.0 notice; the full license text is in the `LICENSE` file.
