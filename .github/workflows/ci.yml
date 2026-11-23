@@ -1,0 +1,35 @@
+name: CI
+
+# Run the static check, build, and test suite on every push to the default
+# branch and on every pull request, so breakage is caught before a tag.
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+# Read-only: CI only inspects the code, it never writes to the repo.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build -o /dev/null .
+
+      - name: Test
+        run: go test -count=1 ./...
