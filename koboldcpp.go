@@ -30,13 +30,18 @@ type KoboldCPP struct {
 	adminClient *http.Client // short timeout, control plane
 	proxyClient *http.Client // no timeout, data plane
 
-	mu          sync.Mutex // serializes load/unload operations
-	stateMu     sync.RWMutex
-	state       State
-	loadedModel string
+	listMu          sync.RWMutex // guards models and served
+	stateMu         sync.RWMutex
+	state           State
+	loadedModel     string
 	protectedWarned bool
-	models      []Model
-	served      []string // names the backend reports it serves (discovery only)
+	models          []Model
+	served          []string // names the backend reports it serves (discovery only)
+
+	// freeMu serializes unloads so the idle loop can't start a second FreeGPU
+	// while the first is running. Requests never take it, so an in-flight
+	// unload does not stall them.
+	freeMu sync.Mutex
 
 	actMu   sync.Mutex
 	lastAct time.Time
@@ -87,16 +92,16 @@ func (k *KoboldCPP) LoadedModel() string {
 }
 
 func (k *KoboldCPP) Models() []Model {
-	k.mu.Lock()
-	defer k.mu.Unlock()
+	k.listMu.RLock()
+	defer k.listMu.RUnlock()
 	out := make([]Model, len(k.models))
 	copy(out, k.models)
 	return out
 }
 
 func (k *KoboldCPP) ServedModels() []string {
-	k.mu.Lock()
-	defer k.mu.Unlock()
+	k.listMu.RLock()
+	defer k.listMu.RUnlock()
 	out := make([]string, len(k.served))
 	copy(out, k.served)
 	return out
@@ -294,10 +299,10 @@ func (k *KoboldCPP) Discover(ctx context.Context) error {
 		}
 	}
 
-	k.mu.Lock()
+	k.listMu.Lock()
 	k.models = models
 	k.served = served
-	k.mu.Unlock()
+	k.listMu.Unlock()
 	return nil
 }
 
@@ -305,11 +310,10 @@ func (k *KoboldCPP) Discover(ctx context.Context) error {
 // managed process first if needed. It does NOT load or swap models:
 // koboldcpp loads the requested model itself when nothing is loaded, and does
 // its own model routing otherwise. The router's only admin-API model action
-// is the idle unload (FreeGPU). Concurrent callers serialize on k.mu.
+// is the idle unload (FreeGPU). It takes no backend-level lock: the process
+// start is serialized by ProcessManager, and the best-effort model-name
+// refresh is a network call that must not hold a lock other requests need.
 func (k *KoboldCPP) EnsureLoaded(ctx context.Context, model string) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
 	if k.pm != nil && !k.pm.Alive() {
 		k.setState(StateStarting)
 		if err := k.pm.Start(ctx); err != nil {
@@ -322,11 +326,11 @@ func (k *KoboldCPP) EnsureLoaded(ctx context.Context, model string) error {
 	// This does not gate the forward — koboldcpp loads `model` itself if
 	// nothing is loaded, so the request goes through either way.
 	if loaded, name, err := k.currentModel(ctx); err == nil && loaded {
+		k.stateMu.Lock()
 		if name == protectedModelSentinel && !k.protectedWarned {
 			k.protectedWarned = true
 			log.Printf("[%s] koboldcpp reports %q: set admin_key to the server password to track the real model name", k.cfg.Name, protectedModelSentinel)
 		}
-		k.stateMu.Lock()
 		k.loadedModel = name
 		k.state = StateReady
 		k.stateMu.Unlock()
@@ -343,14 +347,16 @@ func (k *KoboldCPP) GPUActive() bool {
 }
 
 // FreeGPU unloads the current model (VRAM is freed, the process stays up).
+// It takes freeMu (not a request-path lock) so concurrent unloads serialize
+// with each other without stalling the requests that EnsureLoaded serves.
 func (k *KoboldCPP) FreeGPU(ctx context.Context) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
+	k.freeMu.Lock()
+	defer k.freeMu.Unlock()
 	if k.LoadedModel() == "" {
 		return nil
 	}
-	// In-transition: the idle loop only fires from StateReady, so this
-	// prevents re-triggering (and overlapping releases) while we work.
+	// In-transition: marks the backend as swapping so GPUActive() stays true
+	// (and the idle loop doesn't re-trigger) while we work.
 	k.setState(StateSwapping)
 
 	if resp, err := k.adminReq(ctx, http.MethodPost, "/api/admin/reload_config",
