@@ -64,3 +64,19 @@ backends:
 # Short names for clients: alias -> backend/model
 aliases:
   qwen: kobold/Qwen3.8-27B-Swift.kcppt
+
+# --- GPU-intensive cron jobs ---
+# A job runs only while the GPU is free (no koboldcpp model loaded). It rides
+# on idle_unload: traffic stops, the model unloads, VRAM frees, the job runs.
+# idle_unload must be set (or the model unloaded manually) for a job to ever
+# run. LLM traffic preempts a running job.
+# jobs:
+#   - name: nightly-train
+#     schedule: "0 2 * * *"        # 5-field cron (or @daily, @hourly, ...)
+#     command: "python train.py --epochs 1"
+#     workdir: /opt/train
+#     # env:
+#     #   - "CUDA_VISIBLE_DEVICES=0"
+#     timeout: 6h                  # kill the run after this long (0 = no limit)
+#     on_busy: defer               # defer (default) = wait for the GPU; skip = drop the run
+#     max_wait: 2h                 # with defer: give up after this long (0 = wait forever)

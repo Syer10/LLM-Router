@@ -57,6 +57,9 @@ func (r *Router) StartLoops(ctx context.Context) {
 		}
 	}()
 	go r.idleLoop(ctx)
+	if r.jobs != nil {
+		r.jobs.start(ctx)
+	}
 }
 
 // idleLoop unloads models / stops owned processes after their idle timeout.
@@ -92,8 +95,11 @@ func (r *Router) idleLoop(ctx context.Context) {
 	}
 }
 
-// StopAll stops every owned process (shutdown path).
+// StopAll stops every running job and owned process (shutdown path).
 func (r *Router) StopAll() {
+	if r.jobs != nil {
+		r.jobs.stopAll()
+	}
 	for _, name := range r.order {
 		if r.backends[name].PID() != 0 {
 			log.Printf("[%s] stopping process", name)

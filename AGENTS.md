@@ -30,6 +30,21 @@ router "manage" models, stop: that is the backend's job.
 - **`Forward` takes the HTTP method** so body-less requests (GET, DELETE) work,
   not just POST.
 
+## Idle GPU jobs
+
+`jobs:` in the config runs GPU-intensive commands on a cron schedule, but only
+while the GPU is free. A job is eligible when **no koboldcpp backend is in
+`StateReady`/`StateSwapping`** (`Router.GPUIdle`). The scheduler (`jobs.go`)
+ticks every 15s; `on_busy` is `defer` (wait for the GPU, bounded by
+`max_wait`) or `skip`. This is the one place the router *spawns* a process that
+is not a backend — it reuses `splitCommand`, `procGroupAttr`, and `logBuffer`
+from `process.go`.
+
+- **Jobs need `idle_unload` to ever run** — that is what frees the VRAM.
+- **LLM traffic preempts a running job**: the proxy calls `jobs.preempt()`
+  before forwarding to a koboldcpp backend, killing any running job so the
+  model can load. A preempted job is not resumed.
+
 ## Gotchas (reasons behind non-obvious code)
 
 - **The loaded-model prefix is stripped.** Koboldcpp reports the loaded model by

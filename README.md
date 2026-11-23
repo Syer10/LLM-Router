@@ -20,6 +20,9 @@ APIs, ...) and routes requests based on the `model` parameter.
 - **VRAM-aware idling** — koboldcpp backends can *unload* their model after
   idle time (process stays up, VRAM freed); owned processes can be *killed*
   after a longer idle time.
+- **Idle GPU jobs** — GPU-intensive cron jobs run only while the GPU is free
+  (no koboldcpp model loaded). They ride on `idle_unload` and yield to LLM
+  traffic, so a background job never starves a request.
 - **Streaming** — SSE responses pass through in real time.
 - **Full OpenAI surface** — the router is a transparent proxy: *any* path
   under `/v1` (or at the root, without the prefix) is routed to a backend —
@@ -102,6 +105,15 @@ backends:
 
 aliases:
   qwen: kobold/Qwen3.8-27B-Swift.kcppt
+
+jobs:
+  - name: nightly-train
+    schedule: "0 2 * * *"      # cron: 02:00 daily
+    command: "python train.py --epochs 1"
+    workdir: /opt/train
+    timeout: 6h                # max run time (0 = no limit)
+    on_busy: defer             # defer (default) = wait for the GPU; skip = drop the run
+    max_wait: 2h               # with defer: give up after this long (0 = wait forever)
 ```
 
 ### Backend options
@@ -182,6 +194,60 @@ to that password. Without it:
   tracked and listed
 - `reload_config` answers `{"success": false}`, which the router logs
 
+## Jobs (idle GPU tasks)
+
+Run GPU-intensive commands (training, batch generation, ...) on a cron
+schedule, but only while the router's GPU is free. A job is eligible when **no
+koboldcpp backend has a model loaded** — the same condition `idle_unload`
+produces. OpenAI backends don't use the local GPU, so they never block a job.
+
+```yaml
+jobs:
+  - name: nightly-train
+    schedule: "0 2 * * *"      # standard 5-field cron (or @daily, @hourly, ...)
+    command: "python train.py --epochs 1"
+    workdir: /opt/train        # optional
+    env: ["CUDA_VISIBLE_DEVICES=0"]   # optional
+    timeout: 6h                # optional; kill the run after this long (0 = no limit)
+    on_busy: defer             # optional; defer (default) or skip
+    max_wait: 2h               # optional; with defer, give up after this (0 = wait forever)
+```
+
+How a scheduled run resolves:
+
+- **GPU idle at the scheduled time** → the job starts.
+- **GPU busy, `on_busy: defer`** → the job waits for the GPU to free, then
+  starts. `max_wait` caps the wait (default `0` = wait until it's free); once
+  the cap passes, the run is skipped.
+- **GPU busy, `on_busy: skip`** → the run is dropped.
+
+Notes:
+
+- **`idle_unload` is required for a job to ever run** — it is what frees the
+  VRAM. With `idle_unload` unset (and no manual unload), the model stays loaded
+  and the job never becomes eligible.
+- **LLM traffic preempts a running job.** When a request is routed to a
+  koboldcpp backend, any running job is killed so the model can load. A
+  preempted job is not resumed; schedule it to tolerate that.
+- One instance per job at a time (no overlapping runs). A job missed while the
+  router was down is not caught up — it runs at its next scheduled time.
+- Jobs are stopped on router shutdown.
+- `POST /admin/jobs/{name}/run` starts a job immediately, bypassing the idle
+  check (the operator's explicit call).
+
+### Job options
+
+| Option | Required | Meaning |
+|---|---|---|
+| `name` | yes | unique job name |
+| `schedule` | yes | cron expression (5 fields) or a descriptor like `@daily` |
+| `command` | yes | command line to run (split on spaces, quotes honored) |
+| `workdir` | no | working directory |
+| `env` | no | extra `KEY=VALUE` env vars |
+| `timeout` | no | max run time; the run is killed after this (0 = no limit) |
+| `on_busy` | no | `defer` (default) or `skip` — behavior when the GPU is busy at the scheduled time |
+| `max_wait` | no | with `defer`, how long to wait for the GPU before skipping (0 = wait forever) |
+
 ## Admin API
 
 | Endpoint | Action |
@@ -193,6 +259,10 @@ to that password. Without it:
 | `POST /admin/backends/{name}/unload` | unload the model (koboldcpp) |
 | `POST /admin/backends/{name}/load` | load a model now, body `{"model": "..."}` |
 | `POST /admin/backends/{name}/discover` | re-discover models now |
+| `GET /admin/jobs` | all jobs: schedule, next/last run, last exit, running |
+| `GET /admin/jobs/{name}` | one job |
+| `GET /admin/jobs/{name}/logs?lines=100` | tail captured job output |
+| `POST /admin/jobs/{name}/run` | start the job now (bypasses the idle check) |
 
 Backend states: `stopped`, `starting`, `ready`, `swapping`, `unloaded`,
 `unhealthy`.

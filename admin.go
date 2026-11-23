@@ -27,10 +27,17 @@ func (r *Router) HandleAdmin(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(req.URL.Path, "/admin"), "/"), "/")
-	if parts[0] != "backends" {
+	switch parts[0] {
+	case "backends":
+		r.handleAdminBackends(w, req, parts)
+	case "jobs":
+		r.handleAdminJobs(w, req, parts)
+	default:
 		http.Error(w, "not found", http.StatusNotFound)
-		return
 	}
+}
+
+func (r *Router) handleAdminBackends(w http.ResponseWriter, req *http.Request, parts []string) {
 	if len(parts) == 1 {
 		if req.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -106,6 +113,40 @@ func (r *Router) HandleAdmin(w http.ResponseWriter, req *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"backend": name, "models": b.Models()})
 
+	default:
+		http.Error(w, "not found", http.StatusNotFound)
+	}
+}
+
+func (r *Router) handleAdminJobs(w http.ResponseWriter, req *http.Request, parts []string) {
+	if r.jobs == nil || len(r.jobs.jobs) == 0 {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "no jobs configured"})
+		return
+	}
+	if len(parts) == 1 {
+		if req.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		r.jobs.handleList(w)
+		return
+	}
+	name := parts[1]
+	action := ""
+	if len(parts) > 2 {
+		action = parts[2]
+	}
+	switch {
+	case req.Method == http.MethodGet && action == "":
+		r.jobs.handleOne(w, name)
+	case req.Method == http.MethodGet && action == "logs":
+		r.jobs.handleLogs(w, req, name)
+	case req.Method == http.MethodPost && action == "run":
+		if err := r.jobs.runNow(name); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"job": name, "status": "started"})
 	default:
 		http.Error(w, "not found", http.StatusNotFound)
 	}

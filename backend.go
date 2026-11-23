@@ -89,6 +89,7 @@ type Router struct {
 	backends map[string]Backend
 	cfgs     map[string]BackendConfig
 	order    []string
+	jobs     *jobRunner
 }
 
 func NewRouter(cfg *Config) *Router {
@@ -109,6 +110,7 @@ func NewRouter(cfg *Config) *Router {
 		r.cfgs[bc.Name] = bc
 		r.order = append(r.order, bc.Name)
 	}
+	r.jobs = newJobRunner(r)
 	return r
 }
 

@@ -16,6 +16,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/robfig/cron/v3"
 )
 
 // --- mock koboldcpp ---
@@ -750,5 +752,109 @@ func TestResolveBareNameAcrossBackends(t *testing.T) {
 	}
 	if b.Name() != "b" || model != "shared" {
 		t.Fatalf("resolved %s/%s, want b/shared", b.Name(), model)
+	}
+}
+
+func TestGPUIdle(t *testing.T) {
+	mock := &mockKCPP{options: []string{"A.kcppt"}}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	cfg := &Config{Backends: []BackendConfig{{Name: "kobold", Type: "koboldcpp", BaseURL: srv.URL}}}
+	r := NewRouter(cfg)
+	k := r.backends["kobold"].(*KoboldCPP)
+	if err := k.Discover(context.Background()); err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+
+	// No model loaded -> the GPU is free.
+	if k.State() != StateUnloaded {
+		t.Fatalf("initial state = %v, want unloaded", k.State())
+	}
+	if !r.GPUIdle() {
+		t.Fatalf("GPUIdle = false, want true (no model loaded)")
+	}
+
+	// A loaded model -> the GPU is busy.
+	k.stateMu.Lock()
+	k.state = StateReady
+	k.loadedModel = "A.kcppt"
+	k.stateMu.Unlock()
+	if r.GPUIdle() {
+		t.Fatalf("GPUIdle = true, want false (model loaded)")
+	}
+}
+
+func TestJobTickDecision(t *testing.T) {
+	spec, err := cron.ParseStandard("* * * * *")
+	if err != nil {
+		t.Fatalf("parse schedule: %v", err)
+	}
+	base := time.Date(2026, 11, 23, 10, 0, 0, 0, time.UTC)
+	newState := func(job Job) *jobState {
+		return &jobState{job: job, spec: spec, next: base, logs: newLogBuffer(1024)}
+	}
+
+	// Due + idle -> run.
+	if got := newState(Job{OnBusy: "defer"}).tickOnce(base, true); got != actRun {
+		t.Fatalf("due+idle: got %v, want run", got)
+	}
+	// Due + busy + defer (no max_wait) -> keep waiting.
+	if got := newState(Job{OnBusy: "defer"}).tickOnce(base, false); got != actDefer {
+		t.Fatalf("due+busy+defer: got %v, want defer", got)
+	}
+	// Due + busy + skip -> skip.
+	if got := newState(Job{OnBusy: "skip"}).tickOnce(base, false); got != actSkip {
+		t.Fatalf("due+busy+skip: got %v, want skip", got)
+	}
+	// Due + busy + defer past max_wait -> skip.
+	js := newState(Job{OnBusy: "defer", MaxWait: time.Minute})
+	js.mu.Lock()
+	js.scheduledAt = base
+	js.mu.Unlock()
+	if got := js.tickOnce(base.Add(2*time.Minute), false); got != actSkip {
+		t.Fatalf("due+busy+defer+maxwait: got %v, want skip", got)
+	}
+	// A not-yet-due job is left alone.
+	js = &jobState{job: Job{OnBusy: "defer"}, spec: spec, next: base.Add(time.Hour), logs: newLogBuffer(1024)}
+	if got := js.tickOnce(base, true); got != actNone {
+		t.Fatalf("not due: got %v, want none", got)
+	}
+}
+
+func TestJobAdminEndpoints(t *testing.T) {
+	cfg := &Config{
+		Backends: []BackendConfig{{Name: "kobold", Type: "koboldcpp", BaseURL: "http://127.0.0.1:1"}},
+		Jobs: []Job{{
+			Name: "train", Schedule: "0 2 * * *", Command: "echo hi", OnBusy: "defer",
+		}},
+	}
+	r := NewRouter(cfg)
+
+	// List.
+	rec := doRequest(t, r, "GET", "/admin/jobs", "")
+	if rec.Code != 200 {
+		t.Fatalf("list: status %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"name":"train"`) {
+		t.Fatalf("list body: %s", rec.Body.String())
+	}
+
+	// Single job.
+	rec = doRequest(t, r, "GET", "/admin/jobs/train", "")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"schedule":"0 2 * * *"`) {
+		t.Fatalf("one: status %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Logs (empty).
+	rec = doRequest(t, r, "GET", "/admin/jobs/train/logs", "")
+	if rec.Code != 200 {
+		t.Fatalf("logs: status %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Unknown job -> 404.
+	rec = doRequest(t, r, "GET", "/admin/jobs/nope", "")
+	if rec.Code != 404 {
+		t.Fatalf("unknown job: status %d, want 404", rec.Code)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/robfig/cron/v3"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,6 +26,9 @@ type Config struct {
 	// MaxBodyBytes caps the size of a single request body (memory-exhaustion
 	// DoS guard). Defaults to 100 MiB when unset.
 	MaxBodyBytes int64 `yaml:"max_body_bytes"`
+	// Jobs are GPU-intensive commands run on a cron schedule, only while the
+	// GPU is free (no koboldcpp model loaded).
+	Jobs []Job `yaml:"jobs"`
 }
 
 type BackendConfig struct {
@@ -122,6 +126,27 @@ func LoadConfig(path string) (*Config, error) {
 			} else {
 				b.HealthPath = "/v1/models"
 			}
+		}
+	}
+
+	seenJobs := map[string]bool{}
+	for i := range cfg.Jobs {
+		j := &cfg.Jobs[i]
+		if j.Name == "" {
+			return nil, fmt.Errorf("job %d: name is required", i)
+		}
+		if seenJobs[j.Name] {
+			return nil, fmt.Errorf("duplicate job name %q", j.Name)
+		}
+		seenJobs[j.Name] = true
+		if j.Command == "" {
+			return nil, fmt.Errorf("job %q: command is required", j.Name)
+		}
+		if _, err := cron.ParseStandard(j.Schedule); err != nil {
+			return nil, fmt.Errorf("job %q: invalid schedule %q", j.Name, j.Schedule)
+		}
+		if j.OnBusy != "" && j.OnBusy != "defer" && j.OnBusy != "skip" {
+			return nil, fmt.Errorf("job %q: on_busy must be \"defer\" or \"skip\"", j.Name)
 		}
 	}
 	return &cfg, nil

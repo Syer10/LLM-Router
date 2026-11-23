@@ -165,6 +165,11 @@ func (r *Router) handleGeneric(w http.ResponseWriter, req *http.Request, subpath
 		}
 	}
 
+	// Free the GPU for the model: a background job (if any) holds the VRAM, so
+	// it is killed before the model loads.
+	if b.Type() == "koboldcpp" && r.jobs != nil {
+		r.jobs.preempt()
+	}
 	if err := b.EnsureLoaded(req.Context(), ""); err != nil {
 		log.Printf("ensure loaded %s: %v", b.Name(), err)
 		writeOpenAIError(w, http.StatusServiceUnavailable, err.Error())
