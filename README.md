@@ -144,6 +144,17 @@ The `model` field of a request is resolved in this order:
 2. explicit `backend/model`
 3. bare name, first backend (in config order) that lists it
 
+### Model name rewriting
+
+When a request's resolved model name is not one the backend reports it serves,
+the router rewrites it to a name the backend accepts — but only when the backend
+reports exactly one model. This is for a command backend started on demand that
+serves its model under a name you couldn't see before it was up: declare a
+placeholder via `extra_models` (or an alias) to route to it, and the router
+substitutes the real name once the backend is running. When the backend reports
+no models, or several it does not match, the name is sent as-is and the backend
+decides (the router never guesses among several).
+
 ### Routing the full OpenAI surface
 
 The router proxies every OpenAI endpoint, not just completions. For each

@@ -27,6 +27,7 @@ type OpenAIBackend struct {
 	stateMu sync.RWMutex
 	state   State
 	models  []Model
+	served  []string // names the backend reports via /models (discovery only)
 
 	actMu   sync.Mutex
 	lastAct time.Time
@@ -72,6 +73,14 @@ func (o *OpenAIBackend) Models() []Model {
 	return out
 }
 
+func (o *OpenAIBackend) ServedModels() []string {
+	o.stateMu.RLock()
+	defer o.stateMu.RUnlock()
+	out := make([]string, len(o.served))
+	copy(out, o.served)
+	return out
+}
+
 func (o *OpenAIBackend) PID() int {
 	if o.pm == nil {
 		return 0
@@ -108,6 +117,7 @@ func (o *OpenAIBackend) Discover(ctx context.Context) error {
 	if o.pm != nil && !o.pm.Alive() {
 		o.stateMu.Lock()
 		o.models = extra
+		o.served = nil
 		o.state = StateStopped
 		o.stateMu.Unlock()
 		return nil
@@ -136,12 +146,15 @@ func (o *OpenAIBackend) Discover(ctx context.Context) error {
 		return fmt.Errorf("decoding models: %w", err)
 	}
 	models := make([]Model, 0, len(out.Data)+len(extra))
+	served := make([]string, 0, len(out.Data))
 	for _, m := range out.Data {
 		models = append(models, Model{Name: m.ID, Backend: o.cfg.Name})
+		served = append(served, m.ID)
 	}
 	models = appendModelsUnique(models, extra)
 	o.stateMu.Lock()
 	o.models = models
+	o.served = served
 	o.state = StateReady
 	o.stateMu.Unlock()
 	return nil

@@ -36,6 +36,7 @@ type KoboldCPP struct {
 	loadedModel string
 	protectedWarned bool
 	models      []Model
+	served      []string // names the backend reports it serves (discovery only)
 
 	actMu   sync.Mutex
 	lastAct time.Time
@@ -90,6 +91,14 @@ func (k *KoboldCPP) Models() []Model {
 	defer k.mu.Unlock()
 	out := make([]Model, len(k.models))
 	copy(out, k.models)
+	return out
+}
+
+func (k *KoboldCPP) ServedModels() []string {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	out := make([]string, len(k.served))
+	copy(out, k.served)
 	return out
 }
 
@@ -239,8 +248,10 @@ func (k *KoboldCPP) Discover(ctx context.Context) error {
 		return err
 	}
 	models := make([]Model, 0, len(names)+len(k.cfg.ExtraModels))
+	served := make([]string, 0, len(names)+1)
 	for _, n := range names {
 		models = append(models, Model{Name: n, Backend: k.cfg.Name})
+		served = append(served, n)
 	}
 	models = appendModelsUnique(models, k.cfg.ExtraModelList())
 
@@ -270,11 +281,22 @@ func (k *KoboldCPP) Discover(ctx context.Context) error {
 			if !exists {
 				models = append(models, Model{Name: displayName, Backend: k.cfg.Name})
 			}
+			inServed := false
+			for _, s := range served {
+				if s == displayName {
+					inServed = true
+					break
+				}
+			}
+			if !inServed {
+				served = append(served, displayName)
+			}
 		}
 	}
 
 	k.mu.Lock()
 	k.models = models
+	k.served = served
 	k.mu.Unlock()
 	return nil
 }

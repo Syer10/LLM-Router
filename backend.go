@@ -56,6 +56,11 @@ type Backend interface {
 	State() State
 	LoadedModel() string
 	Models() []Model
+	// ServedModels returns the model names the backend reports it serves
+	// (discovery only, excluding declared extra_models); empty while the
+	// backend is not running. The proxy uses it to rewrite a requested model
+	// to a name the backend actually accepts.
+	ServedModels() []string
 	// PID of the managed process, 0 when the router does not own one.
 	PID() int
 	Logs(lines int) string

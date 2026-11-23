@@ -181,6 +181,11 @@ func (r *Router) handleGeneric(w http.ResponseWriter, req *http.Request, subpath
 	}
 	b.Touch()
 
+	// Rewrite the model to a name the backend accepts (see
+	// rewriteModelToAccepted): a command backend started on demand may serve
+	// its model under a name the router could not see before it was up.
+	body = r.rewriteModelToAccepted(req.Context(), b, body)
+
 	resp, err := forwardWithRetry(req.Context(), b, req.Method, subpath, body, req.Header)
 	if err != nil {
 		log.Printf("forward to %s: %v", b.Name(), err)
@@ -189,6 +194,59 @@ func (r *Router) handleGeneric(w http.ResponseWriter, req *http.Request, subpath
 	}
 	defer resp.Body.Close()
 	copyResponse(w, resp)
+}
+
+// rewriteModelToAccepted rewrites the "model" field of a JSON request body to a
+// name the backend accepts, when the resolved name is one it does not know.
+// This covers a command backend started on demand that serves its model under a
+// name the router could not see before the process was up: the resolved name
+// (from an alias or extra_models) is replaced by the single name the backend
+// reports. When the backend reports no models, or several it does not match, the
+// body is returned unchanged — the router will not guess among several.
+func (r *Router) rewriteModelToAccepted(ctx context.Context, b Backend, body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	var payload map[string]any
+	if json.Unmarshal(body, &payload) != nil {
+		return body
+	}
+	model, _ := payload["model"].(string)
+	if model == "" {
+		return body
+	}
+	if inServed(b, model) {
+		return body
+	}
+	// Not a name the backend reports. It may have just started (empty list);
+	// refresh once, then rewrite to the single served model if there is one.
+	if err := b.Discover(ctx); err != nil {
+		return body
+	}
+	if inServed(b, model) {
+		return body
+	}
+	served := b.ServedModels()
+	if len(served) != 1 {
+		return body
+	}
+	payload["model"] = served[0]
+	out, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	log.Printf("rewrote model %q -> %q for %s", model, served[0], b.Name())
+	return out
+}
+
+// inServed reports whether the backend reports model as one it serves.
+func inServed(b Backend, model string) bool {
+	for _, s := range b.ServedModels() {
+		if s == model {
+			return true
+		}
+	}
+	return false
 }
 
 // forwardWithRetry sends the request to the backend, retrying once when the

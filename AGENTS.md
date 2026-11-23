@@ -20,6 +20,11 @@ router "manage" models, stop: that is the backend's job.
 
 - **Resolution order** for the `model` field: an `aliases` entry → an explicit
   `backend/model` → a bare name (the first backend in config order that lists it).
+- **Model name rewriting**: when the resolved model name is not one the backend
+  reports it serves (`ServedModels`, discovery only — not `extra_models`), the
+  proxy rewrites it to the single served model, but only when there is exactly
+  one. Zero or several served models → sent as-is. This is what lets a command
+  backend be routed to before its real model name is known.
 - **Transparent pass-through**: `HandleV1` routes *any* path under `/v1` (or at
   the root, no prefix) to a backend. Method, path, query, and headers are
   preserved; the backend returns its own 404/405 for endpoints it does not

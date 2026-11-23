@@ -831,6 +831,67 @@ func TestExtraModelsListedWhenNotRunning(t *testing.T) {
 	}
 }
 
+func TestRewriteModelToAccepted(t *testing.T) {
+	// A command backend that serves its model under a name different from the
+	// declared extra_model. The router rewrites the requested (declared) name
+	// to the single name the backend reports.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"object":"list","data":[{"id":"real-name"}]}`)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	cfg := &Config{Backends: []BackendConfig{{
+		Name: "vllm", Type: "openai", BaseURL: srv.URL + "/v1",
+		ExtraModels: []ExtraModel{{Name: "declared-name"}},
+	}}}
+	r := NewRouter(cfg)
+	b := r.backends["vllm"]
+
+	// Declared name is not served; exactly one served model -> rewrite.
+	out := r.rewriteModelToAccepted(context.Background(), b, []byte(`{"model":"declared-name"}`))
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["model"] != "real-name" {
+		t.Fatalf("rewrite = %v, want real-name", got["model"])
+	}
+
+	// A served name is left unchanged.
+	out = r.rewriteModelToAccepted(context.Background(), b, []byte(`{"model":"real-name"}`))
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["model"] != "real-name" {
+		t.Fatalf("served name changed to %v, want real-name", got["model"])
+	}
+
+	// Several served models and an unknown name -> no rewrite (can't guess).
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"object":"list","data":[{"id":"a"},{"id":"b"}]}`)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv2.Close()
+	r2 := NewRouter(&Config{Backends: []BackendConfig{{Name: "m", Type: "openai", BaseURL: srv2.URL + "/v1"}}})
+	b2 := r2.backends["m"]
+	out = r2.rewriteModelToAccepted(context.Background(), b2, []byte(`{"model":"unknown"}`))
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["model"] != "unknown" {
+		t.Fatalf("multi-model rewrite = %v, want unknown (unchanged)", got["model"])
+	}
+}
+
 func TestGPUIdle(t *testing.T) {
 	mock := &mockKCPP{options: []string{"A.kcppt"}}
 	srv := httptest.NewServer(mock.handler())
