@@ -21,7 +21,7 @@ type Config struct {
 	// keys (Authorization: Bearer <key> or x-api-key: <key>). /health stays open.
 	APIKeys         []string          `yaml:"api_keys"`
 	RefreshInterval time.Duration     `yaml:"refresh_interval"` // model re-discovery period
-	SwapTimeout     time.Duration     `yaml:"swap_timeout"`     // max time to wait for a model load/swap
+	SwapTimeout     time.Duration     `yaml:"swap_timeout"`
 	// MaxBodyBytes caps the size of a single request body (memory-exhaustion
 	// DoS guard). Defaults to 100 MiB when unset.
 	MaxBodyBytes int64 `yaml:"max_body_bytes"`

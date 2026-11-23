@@ -40,7 +40,6 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Start owned processes, then discover models from every backend.
 	r.StartOwned(ctx)
 	r.DiscoverAll(ctx)
 	r.StartLoops(ctx)
