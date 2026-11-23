@@ -315,6 +315,17 @@ func (k *KoboldCPP) EnsureLoaded(ctx context.Context, model string) error {
 	return nil
 }
 
+// GPUActive reports whether a model is loaded (VRAM in use).
+func (k *KoboldCPP) GPUActive() bool {
+	s := k.State()
+	return s == StateReady || s == StateSwapping
+}
+
+// FreeGPU unloads the loaded model, freeing VRAM (the process stays up).
+func (k *KoboldCPP) FreeGPU(ctx context.Context) error {
+	return k.Release(ctx)
+}
+
 // Release unloads the current model (VRAM is freed, the process stays up).
 func (k *KoboldCPP) Release(ctx context.Context) error {
 	k.mu.Lock()

@@ -165,10 +165,14 @@ func (r *Router) handleGeneric(w http.ResponseWriter, req *http.Request, subpath
 		}
 	}
 
-	// Free the GPU for the model: a background job (if any) holds the VRAM, so
-	// it is killed before the model loads.
-	if b.Type() == "koboldcpp" && r.jobs != nil {
-		r.jobs.preempt()
+	// Free the local GPU for this backend: release every other active GPU
+	// backend (kobold unloads, owned processes are killed) and any running
+	// job, so the model loads into a free GPU.
+	if r.cfgs[b.Name()].UsesGPU() {
+		if r.jobs != nil {
+			r.jobs.preempt()
+		}
+		r.freeOtherGPU(b)
 	}
 	if err := b.EnsureLoaded(req.Context(), ""); err != nil {
 		log.Printf("ensure loaded %s: %v", b.Name(), err)

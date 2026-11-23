@@ -321,19 +321,41 @@ func (js *jobState) Logs(lines int) string {
 	return js.logs.Tail(lines)
 }
 
-// GPUIdle reports whether no koboldcpp backend currently has a model loaded,
-// i.e. the local GPU's VRAM is free for a background job. OpenAI backends do
-// not use the local GPU, so they are ignored.
+// GPUIdle reports whether no GPU-using backend is currently consuming the
+// local GPU's VRAM, i.e. the GPU is free for a background job. Backends that
+// do not use the local GPU (remote APIs, attached backends the router cannot
+// see) are ignored.
 func (r *Router) GPUIdle() bool {
 	for _, name := range r.order {
-		if r.cfgs[name].Type != "koboldcpp" {
+		if !r.cfgs[name].UsesGPU() {
 			continue
 		}
-		if s := r.backends[name].State(); s == StateReady || s == StateSwapping {
+		if r.backends[name].GPUActive() {
 			return false
 		}
 	}
 	return true
+}
+
+// freeOtherGPU releases every active GPU backend except `keep`, so `keep` can
+// load its model into a free GPU. It is synchronous: the frees complete before
+// the caller proceeds, so the model does not contend for VRAM.
+func (r *Router) freeOtherGPU(keep Backend) {
+	for _, name := range r.order {
+		if name == keep.Name() {
+			continue
+		}
+		if !r.cfgs[name].UsesGPU() {
+			continue
+		}
+		y := r.backends[name]
+		if y.GPUActive() {
+			log.Printf("[%s] releasing GPU for %s", name, keep.Name())
+			if err := y.FreeGPU(context.Background()); err != nil {
+				log.Printf("[%s] release for %s: %v", name, keep.Name(), err)
+			}
+		}
+	}
 }
 
 // --- admin API ---

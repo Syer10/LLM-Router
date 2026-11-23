@@ -70,6 +70,13 @@ type Backend interface {
 	// Release frees resources: unloads the model (koboldcpp) or stops the
 	// process (owned backends).
 	Release(ctx context.Context) error
+	// GPUActive reports whether the backend is currently consuming the local
+	// GPU's VRAM (a loaded model, or a running local process).
+	GPUActive() bool
+	// FreeGPU releases the backend's local GPU (unloads the model, or stops
+	// the owned process). It is a no-op for backends the router cannot free
+	// (attached, non-koboldcpp).
+	FreeGPU(ctx context.Context) error
 	// Forward sends an OpenAI request to the backend. method is the HTTP
 	// method (POST, GET, ...); subpath is relative to the backend's OpenAI
 	// root and may carry a query string, e.g. "/chat/completions?stream=true".

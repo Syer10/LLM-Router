@@ -30,20 +30,29 @@ router "manage" models, stop: that is the backend's job.
 - **`Forward` takes the HTTP method** so body-less requests (GET, DELETE) work,
   not just POST.
 
-## Idle GPU jobs
+## GPU arbitration and idle jobs
 
-`jobs:` in the config runs GPU-intensive commands on a cron schedule, but only
-while the GPU is free. A job is eligible when **no koboldcpp backend is in
-`StateReady`/`StateSwapping`** (`Router.GPUIdle`). The scheduler (`jobs.go`)
-ticks every 15s; `on_busy` is `defer` (wait for the GPU, bounded by
-`max_wait`) or `skip`. This is the one place the router *spawns* a process that
-is not a backend — it reuses `splitCommand`, `procGroupAttr`, and `logBuffer`
-from `process.go`.
+The local GPU is a shared resource. Each backend marks it with `uses_local_gpu`
+(`BackendConfig.UsesGPU`: default `true` for koboldcpp, `false` for openai).
+The router keeps the GPU free so only one consumer is active at a time:
 
-- **Jobs need `idle_unload` to ever run** — that is what frees the VRAM.
-- **LLM traffic preempts a running job**: the proxy calls `jobs.preempt()`
-  before forwarding to a koboldcpp backend, killing any running job so the
-  model can load. A preempted job is not resumed.
+- **`Router.GPUIdle`** = no GPU backend is `GPUActive`. A backend is active when
+  it holds VRAM: koboldcpp with a loaded model, an owned openai with a running
+  process. Attached non-koboldcpp backends report inactive (the router can't
+  see or free them) — they are excluded from arbitration.
+- **Before a model loads**, the proxy releases every other active GPU backend
+  (`Router.freeOtherGPU`) and any running job, so the model loads into a free
+  GPU. `FreeGPU` is per-type: koboldcpp unloads, owned openai is killed.
+- **`jobs:`** run GPU-intensive commands on a cron schedule, only while
+  `GPUIdle`. The scheduler (`jobs.go`) ticks every 15s; `on_busy` is `defer`
+  (bounded by `max_wait`) or `skip`. Jobs are the one non-backend process the
+  router spawns — they reuse `splitCommand`, `procGroupAttr`, `logBuffer` from
+  `process.go`.
+
+- **Jobs need the GPU to be freeable to ever run** — `idle_unload`/`idle_stop`
+  (or a manual free) is what frees the VRAM.
+- **A preempted job is not resumed**: LLM traffic (and any GPU model load)
+  kills a running job first.
 
 ## Gotchas (reasons behind non-obvious code)
 

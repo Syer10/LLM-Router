@@ -20,9 +20,10 @@ APIs, ...) and routes requests based on the `model` parameter.
 - **VRAM-aware idling** — koboldcpp backends can *unload* their model after
   idle time (process stays up, VRAM freed); owned processes can be *killed*
   after a longer idle time.
-- **Idle GPU jobs** — GPU-intensive cron jobs run only while the GPU is free
-  (no koboldcpp model loaded). They ride on `idle_unload` and yield to LLM
-  traffic, so a background job never starves a request.
+- **GPU arbitration** — the local GPU is a shared resource. Any backend can be
+  marked as using it (`uses_local_gpu`); the router keeps the GPU free by
+  releasing other GPU backends before a model loads, and runs GPU-intensive
+  cron jobs only while the GPU is idle.
 - **Streaming** — SSE responses pass through in real time.
 - **Full OpenAI surface** — the router is a transparent proxy: *any* path
   under `/v1` (or at the root, without the prefix) is routed to a backend —
@@ -130,6 +131,7 @@ jobs:
 | `health_path` | owned | path probed for readiness (defaults: kcpp `/api/admin/list_options`, openai `/v1/models`); any HTTP response counts |
 | `idle_unload` | koboldcpp | unload the loaded model after this idle time |
 | `idle_stop` | owned | kill the process after this idle time |
+| `uses_local_gpu` | all | the backend consumes the local GPU's VRAM; the router frees it before other GPU backends / jobs use the GPU. Default `true` for koboldcpp, `false` for openai (set `true` for local vLLM/Ollama) |
 | `extra_models` | koboldcpp | models not reported by `list_options` (e.g. raw `.gguf`); added to the list so they can be requested |
 
 ### Model resolution
@@ -194,12 +196,41 @@ to that password. Without it:
   tracked and listed
 - `reload_config` answers `{"success": false}`, which the router logs
 
+## GPU arbitration
+
+The local GPU is a single shared resource. Mark each backend that uses it with
+`uses_local_gpu` (default `true` for koboldcpp, `false` for openai). The router
+keeps the GPU free so only one consumer is active at a time:
+
+- **Before a model loads** — when a request is routed to a GPU backend, the
+  router first releases every *other* active GPU backend (koboldcpp unloads its
+  model; owned backends are killed) and any running job, then loads the model
+  into the free GPU.
+- **Before a job runs** — a scheduled job starts only when no GPU backend is
+  active (`GPUIdle`).
+- **On idle** — the per-backend `idle_unload` / `idle_stop` policies free the
+  GPU automatically, which is what makes jobs eligible.
+
+How a backend is freed:
+
+| Backend | Active when | Freed by |
+|---|---|---|
+| koboldcpp (owned or attached) | a model is loaded | unload the model (admin API) |
+| openai, owned (vLLM, Ollama you spawn) | the process is running | kill the process tree |
+| openai, attached (you run it yourself) | — | the router can't free it — excluded from arbitration |
+
+An attached backend the router can't control (e.g. an Ollama you run yourself)
+is ignored for GPU purposes: the router neither counts it as busy nor tries to
+free it. To bring it under arbitration, own it — set `command` so the router
+spawns and can kill the process.
+
 ## Jobs (idle GPU tasks)
 
 Run GPU-intensive commands (training, batch generation, ...) on a cron
 schedule, but only while the router's GPU is free. A job is eligible when **no
-koboldcpp backend has a model loaded** — the same condition `idle_unload`
-produces. OpenAI backends don't use the local GPU, so they never block a job.
+GPU-using backend is active** (no loaded model, no running local process).
+Backends that don't use the local GPU — remote APIs, and attached backends the
+router can't see — never block a job.
 
 ```yaml
 jobs:

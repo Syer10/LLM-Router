@@ -56,6 +56,12 @@ type BackendConfig struct {
 	// owned processes: kill the process after this much idle time
 	IdleStop time.Duration `yaml:"idle_stop"`
 
+	// UsesLocalGPU marks a backend that consumes the local GPU's VRAM. The
+	// router keeps the GPU free for jobs and for other backends by releasing
+	// these. Defaults to true for koboldcpp, false for openai (set true for a
+	// local vLLM/Ollama/...).
+	UsesLocalGPU *bool `yaml:"uses_local_gpu"`
+
 	// Extra models not listed by the backend (e.g. raw .gguf files that
 	// koboldcpp loads with a .kcpps template override).
 	ExtraModels []ExtraModel `yaml:"extra_models"`
@@ -63,6 +69,16 @@ type BackendConfig struct {
 
 func (b BackendConfig) AutoStartEnabled() bool {
 	return b.AutoStart == nil || *b.AutoStart
+}
+
+// UsesGPU reports whether the backend consumes the local GPU's VRAM. It
+// defaults to true for koboldcpp and false for openai; an explicit
+// uses_local_gpu overrides the default.
+func (b BackendConfig) UsesGPU() bool {
+	if b.UsesLocalGPU != nil {
+		return *b.UsesLocalGPU
+	}
+	return b.Type == "koboldcpp"
 }
 
 type ExtraModel struct {

@@ -154,6 +154,26 @@ func (o *OpenAIBackend) EnsureLoaded(ctx context.Context, model string) error {
 	return nil
 }
 
+// GPUActive reports whether the owned process is running (its model is in
+// VRAM). Attached backends are not tracked, so they report false — the router
+// cannot see or free them.
+func (o *OpenAIBackend) GPUActive() bool {
+	if o.pm == nil {
+		return false
+	}
+	return o.PID() != 0
+}
+
+// FreeGPU stops the owned process, freeing VRAM. Attached backends are left
+// alone (the router cannot free them).
+func (o *OpenAIBackend) FreeGPU(ctx context.Context) error {
+	if o.pm == nil {
+		return nil
+	}
+	o.StopProcess()
+	return nil
+}
+
 // Release stops the managed process (remote backends are left alone).
 func (o *OpenAIBackend) Release(ctx context.Context) error {
 	if o.pm != nil {

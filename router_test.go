@@ -755,22 +755,29 @@ func TestResolveBareNameAcrossBackends(t *testing.T) {
 	}
 }
 
+func boolPtr(b bool) *bool { return &b }
+
 func TestGPUIdle(t *testing.T) {
 	mock := &mockKCPP{options: []string{"A.kcppt"}}
 	srv := httptest.NewServer(mock.handler())
 	defer srv.Close()
 
-	cfg := &Config{Backends: []BackendConfig{{Name: "kobold", Type: "koboldcpp", BaseURL: srv.URL}}}
+	// A remote openai backend (no local GPU) and an attached openai backend
+	// (GPU-marked but the router cannot see it) must not affect GPUIdle.
+	cfg := &Config{
+		Backends: []BackendConfig{
+			{Name: "kobold", Type: "koboldcpp", BaseURL: srv.URL},
+			{Name: "cloud", Type: "openai", BaseURL: "http://127.0.0.1:1/v1"},
+			{Name: "attached", Type: "openai", BaseURL: "http://127.0.0.1:2/v1", UsesLocalGPU: boolPtr(true)},
+		},
+	}
 	r := NewRouter(cfg)
 	k := r.backends["kobold"].(*KoboldCPP)
 	if err := k.Discover(context.Background()); err != nil {
 		t.Fatalf("discover: %v", err)
 	}
 
-	// No model loaded -> the GPU is free.
-	if k.State() != StateUnloaded {
-		t.Fatalf("initial state = %v, want unloaded", k.State())
-	}
+	// No model loaded -> the GPU is free (cloud and attached are ignored).
 	if !r.GPUIdle() {
 		t.Fatalf("GPUIdle = false, want true (no model loaded)")
 	}
@@ -782,6 +789,55 @@ func TestGPUIdle(t *testing.T) {
 	k.stateMu.Unlock()
 	if r.GPUIdle() {
 		t.Fatalf("GPUIdle = true, want false (model loaded)")
+	}
+}
+
+func TestFreeOtherGPU(t *testing.T) {
+	// Two koboldcpp backends; A has a model loaded (active), B does not.
+	// freeOtherGPU(keep=B) releases A but leaves B alone.
+	mockA := &mockKCPP{options: []string{"A.kcppt"}, loaded: "A.kcppt", reloadDelay: 100 * time.Millisecond}
+	srvA := httptest.NewServer(mockA.handler())
+	defer srvA.Close()
+	mockB := &mockKCPP{options: []string{"B.kcppt"}, reloadDelay: 100 * time.Millisecond}
+	srvB := httptest.NewServer(mockB.handler())
+	defer srvB.Close()
+
+	cfg := &Config{
+		Backends: []BackendConfig{
+			{Name: "a", Type: "koboldcpp", BaseURL: srvA.URL},
+			{Name: "b", Type: "koboldcpp", BaseURL: srvB.URL},
+		},
+	}
+	r := NewRouter(cfg)
+	r.backends["a"].Discover(context.Background())
+	r.backends["b"].Discover(context.Background())
+
+	if !r.backends["a"].GPUActive() {
+		t.Fatalf("a should be active (model loaded)")
+	}
+	if r.backends["b"].GPUActive() {
+		t.Fatalf("b should not be active")
+	}
+
+	r.freeOtherGPU(r.backends["b"])
+
+	if r.backends["a"].GPUActive() {
+		t.Fatalf("a should be released after freeOtherGPU")
+	}
+	if r.backends["b"].GPUActive() {
+		t.Fatalf("b should be untouched")
+	}
+}
+
+func TestOpenAIGPUAttachedNoOp(t *testing.T) {
+	// An attached openai backend (no owned process) is excluded from GPU
+	// arbitration: it reports inactive and FreeGPU is a no-op.
+	o := NewOpenAIBackend(BackendConfig{Name: "x", Type: "openai", BaseURL: "http://127.0.0.1:1/v1"})
+	if o.GPUActive() {
+		t.Fatalf("attached openai GPUActive = true, want false")
+	}
+	if err := o.FreeGPU(context.Background()); err != nil {
+		t.Fatalf("attached openai FreeGPU: %v", err)
 	}
 }
 
