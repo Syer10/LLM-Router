@@ -1,0 +1,69 @@
+name: Release
+
+# Publish a GitHub Release (with cross-platform binaries) when a version tag
+# is pushed, e.g. `git tag v1.0.0 && git push origin v1.0.0`.
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Creating a release requires write access to the repository's contents.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Resolve version
+        id: meta
+        run: |
+          # Tag "v1.2.3" -> version "1.2.3" (strip the leading "v").
+          ver="${GITHUB_REF_NAME#v}"
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # -trimpath keeps builds reproducible; -s -w strips debug info.
+          # -X main.version stamps the release version into the binary.
+          ldflags="-s -w -trimpath -X main.version=${VERSION}"
+          build() {
+            local goos="$1" goarch="$2" suffix="$3"
+            GOOS="$goos" GOARCH="$goarch" go build -ldflags "$ldflags" \
+              -o "dist/llm-router_${VERSION}_${goos}_${goarch}${suffix}" .
+          }
+          build linux   amd64 ""
+          build linux   arm64 ""
+          build windows amd64 ".exe"
+          build darwin  amd64 ""
+          build darwin  arm64 ""
+          echo "=== built artifacts ==="
+          ls -lh dist/
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: llm-router ${{ steps.meta.outputs.tag }}
+          files: |
+            dist/*
+          # Auto-generate release notes from the commits since the last tag.
+          generate_release_notes: true
+          draft: false
+          prerelease: false

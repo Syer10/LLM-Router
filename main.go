@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,9 +16,19 @@ import (
 	"time"
 )
 
+// version is set at build time via -ldflags "-X main.version=...".
+// It defaults to "dev" for local builds.
+var version = "dev"
+
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("llm-router " + version)
+		return
+	}
 
 	cfg, err := LoadConfig(*configPath)
 	if err != nil {
