@@ -83,7 +83,7 @@ func (r *Router) handleAdminBackends(w http.ResponseWriter, req *http.Request, p
 		writeJSON(w, http.StatusOK, map[string]any{"backend": name, "state": b.State().String()})
 
 	case req.Method == http.MethodPost && action == "unload":
-		if err := b.Release(req.Context()); err != nil {
+		if err := b.FreeGPU(req.Context()); err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return
 		}

@@ -67,15 +67,12 @@ type Backend interface {
 	// load of `model` when nothing is loaded, or a process start. It does
 	// not swap models. Serializes internally.
 	EnsureLoaded(ctx context.Context, model string) error
-	// Release frees resources: unloads the model (koboldcpp) or stops the
-	// process (owned backends).
-	Release(ctx context.Context) error
 	// GPUActive reports whether the backend is currently consuming the local
 	// GPU's VRAM (a loaded model, or a running local process).
 	GPUActive() bool
-	// FreeGPU releases the backend's local GPU (unloads the model, or stops
-	// the owned process). It is a no-op for backends the router cannot free
-	// (attached, non-koboldcpp).
+	// FreeGPU releases the backend's local GPU: unloads the model (koboldcpp)
+	// or stops the owned process. It is a no-op for a backend the router
+	// cannot free (an attached, non-owned backend).
 	FreeGPU(ctx context.Context) error
 	// Forward sends an OpenAI request to the backend. method is the HTTP
 	// method (POST, GET, ...); subpath is relative to the backend's OpenAI

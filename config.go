@@ -27,7 +27,7 @@ type Config struct {
 	// DoS guard). Defaults to 100 MiB when unset.
 	MaxBodyBytes int64 `yaml:"max_body_bytes"`
 	// Jobs are GPU-intensive commands run on a cron schedule, only while the
-	// GPU is free (no koboldcpp model loaded).
+	// GPU is free (no GPU backend active).
 	Jobs []Job `yaml:"jobs"`
 }
 
@@ -51,16 +51,11 @@ type BackendConfig struct {
 	AutoStart    *bool    `yaml:"auto_start"`
 	StartTimeout time.Duration `yaml:"start_timeout"`
 
-	// koboldcpp: unload the loaded model after this much idle time (process stays up)
+	// IdleUnload frees the backend's GPU after this much idle time (unloads
+	// the model for koboldcpp, stops the process for owned backends).
 	IdleUnload time.Duration `yaml:"idle_unload"`
 	// owned processes: kill the process after this much idle time
 	IdleStop time.Duration `yaml:"idle_stop"`
-
-	// UsesLocalGPU marks a backend that consumes the local GPU's VRAM. The
-	// router keeps the GPU free for jobs and for other backends by releasing
-	// these. Defaults to true for koboldcpp, false for openai (set true for a
-	// local vLLM/Ollama/...).
-	UsesLocalGPU *bool `yaml:"uses_local_gpu"`
 
 	// Extra models not listed by the backend (e.g. raw .gguf files that
 	// koboldcpp loads with a .kcpps template override).
@@ -71,14 +66,12 @@ func (b BackendConfig) AutoStartEnabled() bool {
 	return b.AutoStart == nil || *b.AutoStart
 }
 
-// UsesGPU reports whether the backend consumes the local GPU's VRAM. It
-// defaults to true for koboldcpp and false for openai; an explicit
-// uses_local_gpu overrides the default.
+// UsesGPU reports whether the backend consumes the local GPU's VRAM. A backend
+// is a GPU backend by locality: koboldcpp always, and any backend the router
+// owns via command (a local vLLM/Ollama/...). A remote backend (no command)
+// does not touch the local GPU.
 func (b BackendConfig) UsesGPU() bool {
-	if b.UsesLocalGPU != nil {
-		return *b.UsesLocalGPU
-	}
-	return b.Type == "koboldcpp"
+	return b.Type == "koboldcpp" || b.Command != ""
 }
 
 type ExtraModel struct {

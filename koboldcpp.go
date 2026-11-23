@@ -284,7 +284,7 @@ func (k *KoboldCPP) Discover(ctx context.Context) error {
 // managed process first if needed. It does NOT load or swap models:
 // koboldcpp loads the requested model itself when nothing is loaded, and does
 // its own model routing otherwise. The router's only admin-API model action
-// is the idle unload (Release). Concurrent callers serialize on k.mu.
+// is the idle unload (FreeGPU). Concurrent callers serialize on k.mu.
 func (k *KoboldCPP) EnsureLoaded(ctx context.Context, model string) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -321,13 +321,8 @@ func (k *KoboldCPP) GPUActive() bool {
 	return s == StateReady || s == StateSwapping
 }
 
-// FreeGPU unloads the loaded model, freeing VRAM (the process stays up).
+// FreeGPU unloads the current model (VRAM is freed, the process stays up).
 func (k *KoboldCPP) FreeGPU(ctx context.Context) error {
-	return k.Release(ctx)
-}
-
-// Release unloads the current model (VRAM is freed, the process stays up).
-func (k *KoboldCPP) Release(ctx context.Context) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if k.LoadedModel() == "" {

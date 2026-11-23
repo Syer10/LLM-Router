@@ -32,17 +32,20 @@ router "manage" models, stop: that is the backend's job.
 
 ## GPU arbitration and idle jobs
 
-The local GPU is a shared resource. Each backend marks it with `uses_local_gpu`
-(`BackendConfig.UsesGPU`: default `true` for koboldcpp, `false` for openai).
-The router keeps the GPU free so only one consumer is active at a time:
+The local GPU is a shared resource. A backend is a GPU backend by locality
+(`BackendConfig.UsesGPU`: `Type == "koboldcpp" || Command != ""`) — koboldcpp
+always, and any backend the router owns via `command`. A remote backend (no
+`command`) does not touch the local GPU. The router keeps the GPU free so only
+one consumer is active at a time:
 
 - **`Router.GPUIdle`** = no GPU backend is `GPUActive`. A backend is active when
   it holds VRAM: koboldcpp with a loaded model, an owned openai with a running
-  process. Attached non-koboldcpp backends report inactive (the router can't
-  see or free them) — they are excluded from arbitration.
+  process.
 - **Before a model loads**, the proxy releases every other active GPU backend
   (`Router.freeOtherGPU`) and any running job, so the model loads into a free
-  GPU. `FreeGPU` is per-type: koboldcpp unloads, owned openai is killed.
+  GPU. `FreeGPU` is per-type: koboldcpp unloads, owned openai stops the process.
+- **Idle timeouts apply to every GPU backend** (`lifecycle.go`): `idle_unload`
+  calls `FreeGPU` (frees the GPU), `idle_stop` calls `StopProcess` (owned only).
 - **`jobs:`** run GPU-intensive commands on a cron schedule, only while
   `GPUIdle`. The scheduler (`jobs.go`) ticks every 15s; `on_busy` is `defer`
   (bounded by `max_wait`) or `skip`. Jobs are the one non-backend process the

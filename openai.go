@@ -167,19 +167,7 @@ func (o *OpenAIBackend) GPUActive() bool {
 // FreeGPU stops the owned process, freeing VRAM. Attached backends are left
 // alone (the router cannot free them).
 func (o *OpenAIBackend) FreeGPU(ctx context.Context) error {
-	if o.pm == nil {
-		return nil
-	}
 	o.StopProcess()
-	return nil
-}
-
-// Release stops the managed process (remote backends are left alone).
-func (o *OpenAIBackend) Release(ctx context.Context) error {
-	if o.pm != nil {
-		o.pm.Stop()
-		o.setState(StateStopped)
-	}
 	return nil
 }
 

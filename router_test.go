@@ -573,7 +573,7 @@ func TestBodySizeLimit(t *testing.T) {
 
 func TestKoboldCPPUnloadWithEmptyModelID(t *testing.T) {
 	// Regression: koboldcpp answers 200 with an empty result on
-	// /api/v1/model when nothing is loaded; Release must still confirm
+	// /api/v1/model when nothing is loaded; FreeGPU must still confirm
 	// the unload.
 	mock := &mockKCPP{options: []string{"A.kcppt"}, reloadDelay: 100 * time.Millisecond, emptyResultWhenUnloaded: true}
 	srv := httptest.NewServer(mock.handler())
@@ -603,8 +603,8 @@ func TestKoboldCPPUnloadWithEmptyModelID(t *testing.T) {
 		t.Fatalf("loaded model = %q, want A.kcppt", k.LoadedModel())
 	}
 
-	if err := k.Release(context.Background()); err != nil {
-		t.Fatalf("release: %v", err)
+	if err := k.FreeGPU(context.Background()); err != nil {
+		t.Fatalf("free GPU: %v", err)
 	}
 	if k.State() != StateUnloaded {
 		t.Fatalf("state = %v, want unloaded", k.State())
@@ -755,20 +755,36 @@ func TestResolveBareNameAcrossBackends(t *testing.T) {
 	}
 }
 
-func boolPtr(b bool) *bool { return &b }
+func TestUsesGPU(t *testing.T) {
+	// GPU by locality: koboldcpp always, openai only when owned (command set).
+	cases := []struct {
+		name string
+		cfg  BackendConfig
+		want bool
+	}{
+		{"koboldcpp attached", BackendConfig{Name: "k", Type: "koboldcpp", BaseURL: "x"}, true},
+		{"koboldcpp owned", BackendConfig{Name: "k", Type: "koboldcpp", BaseURL: "x", Command: "kcpp"}, true},
+		{"openai remote", BackendConfig{Name: "o", Type: "openai", BaseURL: "x"}, false},
+		{"openai owned", BackendConfig{Name: "o", Type: "openai", BaseURL: "x", Command: "vllm"}, true},
+	}
+	for _, c := range cases {
+		if got := c.cfg.UsesGPU(); got != c.want {
+			t.Fatalf("%s: UsesGPU = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
 
 func TestGPUIdle(t *testing.T) {
 	mock := &mockKCPP{options: []string{"A.kcppt"}}
 	srv := httptest.NewServer(mock.handler())
 	defer srv.Close()
 
-	// A remote openai backend (no local GPU) and an attached openai backend
-	// (GPU-marked but the router cannot see it) must not affect GPUIdle.
+	// A remote openai backend (no command) is not a GPU backend and must not
+	// affect GPUIdle.
 	cfg := &Config{
 		Backends: []BackendConfig{
 			{Name: "kobold", Type: "koboldcpp", BaseURL: srv.URL},
 			{Name: "cloud", Type: "openai", BaseURL: "http://127.0.0.1:1/v1"},
-			{Name: "attached", Type: "openai", BaseURL: "http://127.0.0.1:2/v1", UsesLocalGPU: boolPtr(true)},
 		},
 	}
 	r := NewRouter(cfg)
@@ -777,7 +793,7 @@ func TestGPUIdle(t *testing.T) {
 		t.Fatalf("discover: %v", err)
 	}
 
-	// No model loaded -> the GPU is free (cloud and attached are ignored).
+	// No model loaded -> the GPU is free (cloud is not a GPU backend).
 	if !r.GPUIdle() {
 		t.Fatalf("GPUIdle = false, want true (no model loaded)")
 	}
