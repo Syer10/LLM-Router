@@ -40,12 +40,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          # -trimpath keeps builds reproducible; -s -w strips debug info.
-          # -X main.version stamps the release version into the binary.
-          ldflags="-s -w -trimpath -X main.version=${VERSION}"
+          # -trimpath is a `go build` flag (reproducible builds); -s -w strip
+          # debug info and -X main.version stamps the version — those three are
+          # linker flags, so they go in -ldflags, not on the build line.
+          ldflags="-s -w -X main.version=${VERSION}"
           build() {
             local goos="$1" goarch="$2" suffix="$3"
-            GOOS="$goos" GOARCH="$goarch" go build -ldflags "$ldflags" \
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "$ldflags" \
               -o "dist/llm-router_${VERSION}_${goos}_${goarch}${suffix}" .
           }
           build linux   amd64 ""
