@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -105,6 +106,9 @@ func LoadConfig(path string) (*Config, error) {
 
 	if cfg.Listen == "" {
 		cfg.Listen = "127.0.0.1:4000"
+	}
+	if _, _, err := net.SplitHostPort(cfg.Listen); err != nil {
+		return nil, fmt.Errorf("invalid listen address %q: %w", cfg.Listen, err)
 	}
 	if cfg.RefreshInterval == 0 {
 		cfg.RefreshInterval = 5 * time.Minute
