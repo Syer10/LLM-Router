@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -96,6 +97,14 @@ func (r *Router) handleModelRetrieve(w http.ResponseWriter, req *http.Request, s
 	b, _, err := r.Resolve(id)
 	if err != nil {
 		writeOpenAIError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	// A read should not start a backend — that is a heavy side effect (it
+	// loads a model into VRAM). If an owned backend isn't running, say so
+	// clearly rather than 502ing from Forward.
+	if r.cfgs[b.Name()].Command != "" && b.PID() == 0 {
+		writeOpenAIError(w, http.StatusServiceUnavailable,
+			fmt.Sprintf("backend %s is not running; start it via /admin/backends/%s/start", b.Name(), b.Name()))
 		return
 	}
 	b.Touch()
