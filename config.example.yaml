@@ -38,7 +38,6 @@ backends:
   #   workdir: /opt/koboldcpp
   #   # env:
   #   #   - "CUDA_VISIBLE_DEVICES=0"
-  #   auto_start: true        # default; set false to start on demand
   #   start_timeout: 10m      # max time to wait for the process to come up
   #   idle_unload: 10m        # unload model after idle (process stays up)
   #   idle_stop: 1h           # kill the process after idle (frees everything)

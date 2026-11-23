@@ -41,14 +41,13 @@ type BackendConfig struct {
 	// openai: API key sent to the backend
 	APIKey string `yaml:"api_key"`
 
-	// If set, the router owns this backend's process: it spawns it on
-	// startup (when auto_start is not false), restarts it on demand, and
-	// kills it on idle_stop / shutdown. Omit to attach to an existing instance.
+	// If set, the router owns this backend's process: it spawns it on the
+	// first request that needs it, restarts it on demand, and kills it on
+	// idle_stop / shutdown. Omit to attach to an existing instance.
 	Command      string   `yaml:"command"`
 	WorkDir      string   `yaml:"workdir"`
 	Env          []string `yaml:"env"`
 	HealthPath   string   `yaml:"health_path"`
-	AutoStart    *bool    `yaml:"auto_start"`
 	StartTimeout time.Duration `yaml:"start_timeout"`
 
 	// IdleUnload (koboldcpp only): unload the loaded model after this much idle
@@ -61,10 +60,6 @@ type BackendConfig struct {
 	// Extra models not listed by the backend (e.g. raw .gguf files that
 	// koboldcpp loads with a .kcpps template override).
 	ExtraModels []ExtraModel `yaml:"extra_models"`
-}
-
-func (b BackendConfig) AutoStartEnabled() bool {
-	return b.AutoStart == nil || *b.AutoStart
 }
 
 // UsesGPU reports whether the backend consumes the local GPU's VRAM. A backend

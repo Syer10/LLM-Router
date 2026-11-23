@@ -7,7 +7,6 @@ package main
 import (
 	"context"
 	"log"
-	"sync"
 	"time"
 )
 
@@ -18,28 +17,6 @@ func (r *Router) DiscoverAll(ctx context.Context) {
 			log.Printf("[%s] discovery: %v", name, err)
 		}
 	}
-}
-
-// StartOwned starts the processes of owned backends with auto_start.
-func (r *Router) StartOwned(ctx context.Context) {
-	var wg sync.WaitGroup
-	for _, name := range r.order {
-		bc := r.cfgs[name]
-		if bc.Command == "" || !bc.AutoStartEnabled() {
-			continue
-		}
-		wg.Add(1)
-		go func(name string) {
-			defer wg.Done()
-			log.Printf("[%s] starting process: %s", name, bc.Command)
-			if err := r.backends[name].StartProcess(ctx); err != nil {
-				log.Printf("[%s] failed to start: %v", name, err)
-			} else {
-				log.Printf("[%s] process ready (pid %d)", name, r.backends[name].PID())
-			}
-		}(name)
-	}
-	wg.Wait()
 }
 
 // StartLoops launches the periodic discovery and idle-management loops.

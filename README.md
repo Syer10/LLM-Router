@@ -127,7 +127,6 @@ jobs:
 | `api_key` | openai | Bearer key sent to the backend |
 | `command` | all | **set it to make the router own the process** (spawn/restart/kill); omit to attach |
 | `workdir`, `env` | owned | process working dir and extra `KEY=VALUE` env vars |
-| `auto_start` | owned | start on router startup (default `true`) |
 | `start_timeout` | owned | max wait for the process to answer its health check (default 10m) |
 | `health_path` | owned | path probed for readiness (defaults: kcpp `/api/admin/list_options`, openai `/v1/models`); any HTTP response counts |
 | `idle_unload` | koboldcpp | unload the loaded model after this idle time (frees VRAM, process stays up) |
