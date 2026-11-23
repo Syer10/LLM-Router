@@ -106,6 +106,9 @@ Linux `amd64` binary is the deployable. Production topology: client → Caddy (T
   own — the why, the gotcha, the non-obvious constraint. It does not narrate the
   change ("fixed the 401 bug", "changed X to Y"); that belongs in the commit
   message. If a comment only restates what the code already says, leave it out.
+- **Don't hard-wrap Markdown prose.** In `README.md` (and other Markdown), write
+  paragraphs and list items as single natural lines and let the renderer wrap
+  them. Don't manually wrap at a fixed column — it creates noisy diffs.
 - **New `.go` files need the MPL-2.0 header** — copy the top of any existing file.
   The project is licensed MPL-2.0 (see `LICENSE`).
 - **`test-live.yaml` is gitignored and points at a live server** (uses
