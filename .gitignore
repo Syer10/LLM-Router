@@ -7,6 +7,7 @@
 *.test
 *.out
 coverage.*
+dist/
 
 # Local, environment-specific test config (points at a live server).
 # config.example.yaml is the committed reference.
