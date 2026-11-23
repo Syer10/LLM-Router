@@ -33,7 +33,7 @@ type OpenAIBackend struct {
 }
 
 func NewOpenAIBackend(cfg BackendConfig) *OpenAIBackend {
-	o := &OpenAIBackend{cfg: cfg, state: StateStopped, lastAct: time.Now()}
+	o := &OpenAIBackend{cfg: cfg, state: StateStopped, lastAct: time.Now(), models: cfg.ExtraModelList()}
 	if cfg.Command != "" {
 		o.pm = NewProcessManager(cfg.Name, cfg.Command, cfg.WorkDir, cfg.Env,
 			cfg.BaseURL+cfg.HealthPath, cfg.StartTimeout)
@@ -102,8 +102,14 @@ func (o *OpenAIBackend) StopProcess() {
 }
 
 func (o *OpenAIBackend) Discover(ctx context.Context) error {
+	// extra_models are always listed (even when the process is down), so a
+	// command backend can be routed to / aliased before it starts.
+	extra := o.cfg.ExtraModelList()
 	if o.pm != nil && !o.pm.Alive() {
-		o.setState(StateStopped)
+		o.stateMu.Lock()
+		o.models = extra
+		o.state = StateStopped
+		o.stateMu.Unlock()
 		return nil
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, o.cfg.BaseURL+"/models", nil)
@@ -129,10 +135,11 @@ func (o *OpenAIBackend) Discover(ctx context.Context) error {
 		o.setState(StateUnhealthy)
 		return fmt.Errorf("decoding models: %w", err)
 	}
-	models := make([]Model, 0, len(out.Data))
+	models := make([]Model, 0, len(out.Data)+len(extra))
 	for _, m := range out.Data {
 		models = append(models, Model{Name: m.ID, Backend: o.cfg.Name})
 	}
+	models = appendModelsUnique(models, extra)
 	o.stateMu.Lock()
 	o.models = models
 	o.state = StateReady

@@ -151,3 +151,18 @@ func (r *Router) resolveTarget(target string) (Backend, string, error) {
 	}
 	return b, parts[1], nil
 }
+
+// appendModelsUnique appends m to list, skipping any name already present.
+func appendModelsUnique(list, m []Model) []Model {
+	seen := make(map[string]bool, len(list))
+	for _, x := range list {
+		seen[x.Name] = true
+	}
+	for _, x := range m {
+		if !seen[x.Name] {
+			list = append(list, x)
+			seen[x.Name] = true
+		}
+	}
+	return list
+}

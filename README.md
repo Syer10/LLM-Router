@@ -99,6 +99,8 @@ backends:
     command: "vllm serve /models/llama-70b --port 8000"
     start_timeout: 20m
     idle_stop: 30m     # stop the process after idle (frees the GPU)
+    extra_models:      # declare the model so it can be aliased before it starts
+      - name: llama-70b
 
   - name: openai-cloud
     type: openai
@@ -107,6 +109,7 @@ backends:
 
 aliases:
   qwen: kobold/Qwen3.8-27B-Swift.kcppt
+  llama: vllm/llama-70b
 
 jobs:
   - name: nightly-train
@@ -131,7 +134,7 @@ jobs:
 | `health_path` | owned | path probed for readiness (defaults: kcpp `/api/admin/list_options`, openai `/v1/models`); any HTTP response counts |
 | `idle_unload` | koboldcpp | unload the loaded model after this idle time (frees VRAM, process stays up) |
 | `idle_stop` | owned | kill the process after this idle time (for a command backend, this frees the GPU) |
-| `extra_models` | koboldcpp | models not reported by `list_options` (e.g. raw `.gguf`); added to the list so they can be requested |
+| `extra_models` | all | models the backend serves that discovery can't report; always listed (even when a command backend isn't running), so they can be routed to / aliased. For koboldcpp, `template` is a `.kcpps` override for raw `.gguf` |
 
 ### Model resolution
 

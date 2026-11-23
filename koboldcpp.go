@@ -49,6 +49,7 @@ func NewKoboldCPP(cfg BackendConfig, swapTimeout time.Duration) *KoboldCPP {
 		proxyClient: &http.Client{},
 		state:       StateStopped,
 		lastAct:     time.Now(),
+		models:      cfg.ExtraModelList(),
 	}
 	if cfg.Command != "" {
 		k.pm = NewProcessManager(cfg.Name, cfg.Command, cfg.WorkDir, cfg.Env,
@@ -241,9 +242,7 @@ func (k *KoboldCPP) Discover(ctx context.Context) error {
 	for _, n := range names {
 		models = append(models, Model{Name: n, Backend: k.cfg.Name})
 	}
-	for _, e := range k.cfg.ExtraModels {
-		models = append(models, Model{Name: e.Name, Backend: k.cfg.Name})
-	}
+	models = appendModelsUnique(models, k.cfg.ExtraModelList())
 
 	if loaded, name, err := k.currentModel(ctx); err == nil {
 		k.stateMu.Lock()

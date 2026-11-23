@@ -62,6 +62,10 @@ backends:
   #   command: "vllm serve /models/llama-70b --port 8000"
   #   start_timeout: 20m
   #   idle_stop: 30m
+  #   # Declare the model name(s) so it can be routed to / aliased before the
+  #   # process starts (discovery can't see them while it's down).
+  #   extra_models:
+  #     - name: llama-70b
 
 # Short names for clients: alias -> backend/model
 aliases:

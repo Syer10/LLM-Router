@@ -795,6 +795,42 @@ func TestConfigRejectsIdleUnloadOnNonKobold(t *testing.T) {
 	}
 }
 
+func TestExtraModelsListedWhenNotRunning(t *testing.T) {
+	cfg := &Config{
+		Backends: []BackendConfig{
+			{
+				Name: "vllm", Type: "openai", BaseURL: "http://127.0.0.1:1/v1",
+				Command: "vllm serve",
+				ExtraModels: []ExtraModel{{Name: "llama-70b"}},
+			},
+		},
+		Aliases: map[string]string{"qwen": "vllm/llama-70b"},
+	}
+	r := NewRouter(cfg)
+	// The backend isn't running, but its declared model is listed from the
+	// start (seeded in the constructor).
+	models := r.backends["vllm"].Models()
+	if len(models) != 1 || models[0].Name != "llama-70b" {
+		t.Fatalf("models = %v, want [llama-70b]", models)
+	}
+	// An alias to the declared model resolves.
+	b, model, err := r.Resolve("qwen")
+	if err != nil {
+		t.Fatalf("resolve alias: %v", err)
+	}
+	if b.Name() != "vllm" || model != "llama-70b" {
+		t.Fatalf("alias resolved %s/%s, want vllm/llama-70b", b.Name(), model)
+	}
+	// Bare-name resolution also finds the declared model.
+	b, model, err = r.Resolve("llama-70b")
+	if err != nil {
+		t.Fatalf("resolve bare: %v", err)
+	}
+	if b.Name() != "vllm" || model != "llama-70b" {
+		t.Fatalf("bare resolved %s/%s, want vllm/llama-70b", b.Name(), model)
+	}
+}
+
 func TestGPUIdle(t *testing.T) {
 	mock := &mockKCPP{options: []string{"A.kcppt"}}
 	srv := httptest.NewServer(mock.handler())

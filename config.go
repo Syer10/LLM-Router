@@ -57,8 +57,10 @@ type BackendConfig struct {
 	// command backend this is what frees the GPU.
 	IdleStop time.Duration `yaml:"idle_stop"`
 
-	// Extra models not listed by the backend (e.g. raw .gguf files that
-	// koboldcpp loads with a .kcpps template override).
+	// Extra models the backend serves that discovery can't report. For a
+	// command backend this declares its model name(s) so it can be routed to
+	// and aliased before the process starts. For koboldcpp, `template` is a
+	// .kcpps override for raw .gguf files.
 	ExtraModels []ExtraModel `yaml:"extra_models"`
 }
 
@@ -73,6 +75,16 @@ func (b BackendConfig) UsesGPU() bool {
 type ExtraModel struct {
 	Name     string `yaml:"name"`
 	Template string `yaml:"template"` // koboldcpp overrideconfig
+}
+
+// ExtraModelList returns the statically-declared models (extra_models) as a
+// Model slice.
+func (b BackendConfig) ExtraModelList() []Model {
+	out := make([]Model, 0, len(b.ExtraModels))
+	for _, e := range b.ExtraModels {
+		out = append(out, Model{Name: e.Name, Backend: b.Name})
+	}
+	return out
 }
 
 func LoadConfig(path string) (*Config, error) {
