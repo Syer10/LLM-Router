@@ -892,6 +892,60 @@ func TestRewriteModelToAccepted(t *testing.T) {
 	}
 }
 
+func TestStreamStopsWhenClientCancels(t *testing.T) {
+	// The mock backend streams one chunk, then blocks until the router closes
+	// the connection (the client disconnected) — detected via its own request
+	// context. It records that cancellation so the test can assert the router
+	// propagated the client's cancel to the backend (so the backend can stop).
+	canceled := make(chan struct{})
+	var once sync.Once
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fl, _ := w.(http.Flusher)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "data: chunk1\n\n")
+		fl.Flush()
+		select {
+		case <-r.Context().Done():
+			once.Do(func() { close(canceled) })
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	defer mock.Close()
+
+	r := NewRouter(&Config{Backends: []BackendConfig{{
+		Name: "b", Type: "openai", BaseURL: mock.URL + "/v1",
+	}}})
+	srv := httptest.NewServer(http.HandlerFunc(r.HandleV1))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+		srv.URL+"/v1/chat/completions", strings.NewReader(`{"model":"b/m","stream":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("client request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	buf := make([]byte, 1024)
+	if _, err := resp.Body.Read(buf); err != nil {
+		t.Fatalf("read first chunk: %v", err)
+	}
+
+	// Cancel the client (simulates the user cancelling the stream). The router
+	// must close its connection to the backend, which cancels the backend's
+	// request context so it can stop generating.
+	cancel()
+	select {
+	case <-canceled:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("backend request was not canceled after the client disconnected")
+	}
+}
+
 func TestGPUIdle(t *testing.T) {
 	mock := &mockKCPP{options: []string{"A.kcppt"}}
 	srv := httptest.NewServer(mock.handler())
