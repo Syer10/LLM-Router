@@ -1,0 +1,24 @@
+# Compiled binaries
+/llm-router
+/llm-router.exe
+/llm-router-linux
+
+# Go test / build artifacts
+*.test
+*.out
+coverage.*
+
+# Local, environment-specific test config (points at a live server).
+# config.example.yaml is the committed reference.
+test-live.yaml
+
+# koboldcpp API spec / swagger — reference only, not used by the build.
+# Re-download from koboldcpp if needed; a committed copy goes stale.
+kobold-spec.json
+kobold-swagger.json
+
+# Editor / OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store

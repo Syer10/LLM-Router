@@ -1,0 +1,67 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+)
+
+func main() {
+	configPath := flag.String("config", "config.yaml", "path to config file")
+	flag.Parse()
+
+	cfg, err := LoadConfig(*configPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	r := NewRouter(cfg)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Start owned processes, then discover models from every backend.
+	r.StartOwned(ctx)
+	r.DiscoverAll(ctx)
+	r.StartLoops(ctx)
+
+	mux := http.NewServeMux()
+	// Serve the whole OpenAI surface with or without the /v1 prefix, so
+	// clients work whether their base URL is ".../v1" or just the host root.
+	// The "/" catch-all routes every non-admin, non-health path to HandleV1,
+	// which transparently proxies it to a backend.
+	mux.HandleFunc("/v1", r.HandleV1)
+	mux.HandleFunc("/v1/", r.HandleV1)
+	mux.HandleFunc("/", r.HandleV1)
+	mux.HandleFunc("/admin/", r.HandleAdmin)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+
+	srv := &http.Server{
+		Addr:              cfg.Listen,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	go func() {
+		log.Printf("llm-router listening on %s (%d backends)", cfg.Listen, len(r.order))
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("shutting down...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	srv.Shutdown(shutdownCtx)
+	r.StopAll()
+}

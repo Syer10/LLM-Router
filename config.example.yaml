@@ -1,0 +1,66 @@
+# llm-router configuration
+# ${VAR} references are expanded from the environment.
+
+listen: 127.0.0.1:4000
+
+# If non-empty, every /v1 and /admin request must present one of these keys
+# (Authorization: Bearer <key> or x-api-key: <key>). /health stays open.
+# api_keys:
+#   - ${ROUTER_API_KEY}
+
+# How often model lists are re-discovered from the backends.
+refresh_interval: 5m
+# Legacy: the router no longer loads/swaps models (koboldcpp does), so this
+# is accepted but unused.
+swap_timeout: 15m
+# Cap on a single request body, in bytes (memory-exhaustion DoS guard).
+# Requests larger than this get a 413. Defaults to 104857600 (100 MiB).
+# max_body_bytes: 104857600
+
+backends:
+  # --- koboldcpp, attach mode (no `command`): the router talks to an
+  # --- already-running instance and only manages model load/unload.
+  - name: kobold
+    type: koboldcpp
+    base_url: http://127.0.0.1:5001
+    admin_key: ${KCPP_API_KEY}
+    # Unload the model after 10 min idle to free VRAM (process stays up).
+    idle_unload: 10m
+
+  # --- koboldcpp, owned mode (`command` set): the router spawns the
+  # --- process on startup, restarts it on demand, and kills it when
+  # --- idle_stop elapses or the router shuts down.
+  # - name: kobold
+  #   type: koboldcpp
+  #   base_url: http://127.0.0.1:5001
+  #   admin_key: ${KCPP_API_KEY}
+  #   command: "koboldcpp --device cuda --openai -port 5001"
+  #   workdir: /opt/koboldcpp
+  #   # env:
+  #   #   - "CUDA_VISIBLE_DEVICES=0"
+  #   auto_start: true        # default; set false to start on demand
+  #   start_timeout: 10m      # max time to wait for the process to come up
+  #   idle_unload: 10m        # unload model after idle (process stays up)
+  #   idle_stop: 1h           # kill the process after idle (frees everything)
+  #   # Raw .gguf files that list_options does not report:
+  #   # extra_models:
+  #   #   - name: MyModel.gguf
+  #   #     template: Gemma4-31B-Max.kcpps
+
+  # --- any OpenAI-compatible server, remote (no `command`)
+  - name: openai-cloud
+    type: openai
+    base_url: https://api.openai.com/v1
+    api_key: ${OPENAI_API_KEY}
+
+  # --- any OpenAI-compatible server, owned (router manages the process)
+  # - name: vllm
+  #   type: openai
+  #   base_url: http://127.0.0.1:8000/v1
+  #   command: "vllm serve /models/llama-70b --port 8000"
+  #   start_timeout: 20m
+  #   idle_stop: 30m
+
+# Short names for clients: alias -> backend/model
+aliases:
+  qwen: kobold/Qwen3.8-27B-Swift.kcppt
