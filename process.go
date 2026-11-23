@@ -170,8 +170,18 @@ func (p *ProcessManager) Start(ctx context.Context) error {
 		p.setState(StateStopped)
 	}()
 
+	// Wait for health on a context bounded by startTimeout, independent of the
+	// caller's context: a client canceling their request must not kill a
+	// shared backend mid-startup. The caller's ctx is only a pre-flight gate
+	// (don't start a process no one is waiting for).
+	if ctx.Err() != nil {
+		p.Stop()
+		return ctx.Err()
+	}
+	waitCtx, cancel := context.WithTimeout(context.Background(), p.startTimeout)
+	defer cancel()
 	p.setState(StateStarting)
-	if err := p.waitForHealth(ctx); err != nil {
+	if err := p.waitForHealth(waitCtx); err != nil {
 		p.Stop()
 		p.setState(StateUnhealthy)
 		return err
